@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>純白 EDM Pad 動畫編輯器</title>
+    <style>
+        :root {
+            --bg-color: #f0f3f8;
+            --pad-board: #ffffff;
+            --ring-color: #4a4a4a;
+            --pad-inner: #fdfdfd;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px;
+            margin: 0;
+        }
+
+        /* 控制面板 */
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        #btn-record { background-color: #ff4757; color: white; }
+        #btn-record.recording { background-color: #ff6b81; animation: pulse 1s infinite; }
+        #btn-play { background-color: #2ed573; color: white; }
+        #btn-clear { background-color: #747d8c; color: white; }
+        #btn-apply { background-color: #1e90ff; color: white; margin-top: 10px; }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 71, 87, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 71, 87, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 71, 87, 0); }
+        }
+
+        /* 機器本體 */
+        .pad-machine {
+            background: var(--pad-board);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 
+                20px 20px 40px #d1d5da,
+                -20px -20px 40px #ffffff;
+            margin-bottom: 30px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 12px;
+        }
+
+        /* 按鍵樣式 */
+        .pad {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            background: var(--pad-inner);
+            border: 5px solid var(--ring-color);
+            cursor: pointer;
+            transition: box-shadow 0.1s ease-out, background 0.1s ease-out;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        /* 發光特效 */
+        .pad.active {
+            border-color: #222;
+        }
+
+        /* 編輯器區域 */
+        .editor-container {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .editor-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 14px;
+            border-radius: 10px;
+            border: 2px solid #ccc;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        .instructions {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+            line-height: 1.5;
+            background: #fff;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <button id="btn-record">⏺ 錄製 (Record)</button>
+        <button id="btn-play">▶ 播放 (Play)</button>
+        <button id="btn-clear">🗑 清除 (Clear)</button>
+    </div>
+
+    <!-- EDM Pad 區塊 -->
+    <div class="pad-machine">
+        <div class="grid" id="pad-grid"></div>
+    </div>
+
+    <!-- 時間軸文字編輯器 -->
+    <div class="editor-container">
+        <div class="editor-title">時間軸編輯器 (JSON 格式)</div>
+        <textarea id="sequence-editor">[]</textarea>
+        <button id="btn-apply">💾 儲存並套用修改</button>
+        
+        <div class="instructions">
+            <b>操作方式：</b><br>
+            1. 點擊「錄製」，然後隨意用滑鼠點擊上方圓形按鍵打節奏。<br>
+            2. 錄製完成後，再點一次「停止錄製」。<br>
+            3. 點擊「播放」觀看你剛才打的節奏特效。<br>
+            4. <b>想微調？</b> 直接在上方文字框修改 <code>time</code> (觸發時間，毫秒) 或 <code>color</code> (顏色代碼)，然後點擊「儲存並套用修改」，這就像剪輯軟體的關鍵影格！
+        </div>
+    </div>
+
+    <script>
+        const grid = document.getElementById('pad-grid');
+        const btnRecord = document.getElementById('btn-record');
+        const btnPlay = document.getElementById('btn-play');
+        const btnClear = document.getElementById('btn-clear');
+        const btnApply = document.getElementById('btn-apply');
+        const editor = document.getElementById('sequence-editor');
+
+        // 鮮豔的 EDM 特效顏色池 (你可以自己新增想要的顏色)
+        const colors =['#00d2d3', '#ff9f43', '#ee5253', '#2e86de', '#10ac84', '#feca57', '#ff9ff3', '#00a8ff'];
+        
+        let sequence =[]; // 儲存時間軸資料
+        let isRecording = false;
+        let isPlaying = false;
+        let startTime = 0;
+        let playouts =[]; // 儲存播放的 timeout，方便中斷
+
+        // 1. 生成 8x8 的格子 (共64鍵)
+        for (let i = 0; i < 64; i++) {
+            const pad = document.createElement('div');
+            pad.classList.add('pad');
+            pad.dataset.index = i;
+            
+            // 滑鼠點擊按鍵時的事件
+            pad.addEventListener('mousedown', () => {
+                // 隨機抽一個顏色
+                const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                triggerPad(i, randomColor);
+                
+                // 如果在錄製中，把時間點和按鍵記錄下來
+                if (isRecording) {
+                    const timeOffset = Date.now() - startTime;
+                    sequence.push({
+                        time: timeOffset,
+                        padIndex: i,
+                        color: randomColor
+                    });
+                    updateEditor(); // 同步更新文字框內容
+                }
+            });
+            grid.appendChild(pad);
+        }
+
+        // 2. 觸發按鍵發光特效的函數
+        function triggerPad(index, color) {
+            const pad = grid.children[index];
+            if(!pad) return;
+
+            // 改變顏色並加上霓虹發光效果
+            pad.style.background = color;
+            pad.style.boxShadow = `0 0 20px ${color}, inset 0 0 10px #fff`;
+            pad.classList.add('active');
+
+            // 200毫秒後自動熄滅
+            setTimeout(() => {
+                pad.style.background = 'var(--pad-inner)';
+                pad.style.boxShadow = 'inset 0 2px 5px rgba(0,0,0,0.1)';
+                pad.classList.remove('active');
+            }, 200);
+        }
+
+        // 3. 更新 JSON 編輯器的畫面
+        function updateEditor() {
+            // 將陣列轉成排版漂亮的文字顯示出來
+            editor.value = JSON.stringify(sequence, null, 2);
+        }
+
+        // 4. 錄製按鈕邏輯
+        btnRecord.addEventListener('click', () => {
+            if (isPlaying) return; // 播放中不給錄製
+            
+            isRecording = !isRecording;
+            
+            if (isRecording) {
+                btnRecord.textContent = '⏹ 停止錄製 (Stop)';
+                btnRecord.classList.add('recording');
+                
+                if (sequence.length === 0) {
+                    startTime = Date.now(); // 第一次錄製開始計時
+                } else {
+                    // 如果接續錄製，讓起始時間倒推，延續時間軸
+                    const lastEvent = sequence[sequence.length - 1];
+                    startTime = Date.now() - lastEvent.time - 500; 
+                }
+            } else {
+                btnRecord.textContent = '⏺ 錄製 (Record)';
+                btnRecord.classList.remove('recording');
+            }
+        });
+
+        // 5. 播放按鈕邏輯
+        btnPlay.addEventListener('click', () => {
+            if (isRecording || sequence.length === 0) return;
+            
+            // 中斷之前的播放
+            playouts.forEach(clearTimeout);
+            playouts =[];
+
+            isPlaying = true;
+            btnPlay.textContent = '⏸ 播放中...';
+
+            // 找出最後一個動畫結束的時間
+            const maxTime = Math.max(...sequence.map(s => s.time)) + 300;
+
+            // 依照記錄的時間軸，排程觸發發光特效
+            sequence.forEach(step => {
+                const timeout = setTimeout(() => {
+                    triggerPad(step.padIndex, step.color);
+                }, step.time);
+                playouts.push(timeout);
+            });
+
+            // 播放結束後恢復按鈕狀態
+            setTimeout(() => {
+                isPlaying = false;
+                btnPlay.textContent = '▶ 播放 (Play)';
+            }, maxTime);
+        });
+
+        // 6. 清除按鈕邏輯
+        btnClear.addEventListener('click', () => {
+            sequence =[]; // 清空記錄
+            updateEditor(); // 更新文字框
+            
+            // 順便停止播放
+            playouts.forEach(clearTimeout);
+            playouts =[];
+            isPlaying = false;
+            btnPlay.textContent = '▶ 播放 (Play)';
+        });
+
+        // 7. 套用修改按鈕邏輯
+        btnApply.addEventListener('click', () => {
+            try {
+                // 將文字框裡的內容轉回程式資料
+                const newSequence = JSON.parse(editor.value);
+                if (Array.isArray(newSequence)) {
+                    sequence = newSequence; // 更新資料
+                    alert('✅ 修改成功！點擊播放看看吧。');
+                } else {
+                    alert('❌ 格式錯誤：最外層必須是中括號
